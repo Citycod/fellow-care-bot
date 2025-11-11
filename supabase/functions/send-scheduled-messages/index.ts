@@ -34,21 +34,35 @@ serve(async (req) => {
 
     console.log(`Found ${schedules?.length || 0} active schedules`);
 
-    const currentDay = new Date().toLocaleDateString('en-US', { weekday: 'long' });
-    const currentTime = new Date().toTimeString().slice(0, 5); // HH:MM format
-
     let totalMessagesSent = 0;
 
     for (const schedule of schedules || []) {
+      // Convert UTC time to Nigerian timezone (Africa/Lagos, UTC+1)
+      const now = new Date();
+      const nigerianTime = new Date(now.toLocaleString('en-US', { timeZone: 'Africa/Lagos' }));
+      
+      const currentDay = nigerianTime.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'Africa/Lagos' });
+      const currentHours = nigerianTime.getHours().toString().padStart(2, '0');
+      const currentMinutes = nigerianTime.getMinutes().toString().padStart(2, '0');
+      const currentTime = `${currentHours}:${currentMinutes}`;
+
+      console.log(`Nigerian time - Day: ${currentDay}, Time: ${currentTime}`);
+
       // Check if today is a scheduled day
       if (!schedule.send_days.includes(currentDay)) {
         console.log(`Skipping schedule ${schedule.id}: Today (${currentDay}) is not a scheduled day`);
         continue;
       }
 
-      // Check if it's time to send (allow 5-minute window)
-      const scheduledTime = schedule.send_time;
+      // Check if it's time to send (within current minute)
+      const scheduledTime = schedule.send_time.slice(0, 5); // Get HH:MM from time
       console.log(`Checking schedule ${schedule.id}: Current time ${currentTime}, Scheduled time ${scheduledTime}`);
+
+      // Only process if time matches
+      if (currentTime !== scheduledTime) {
+        console.log(`Skipping schedule ${schedule.id}: Time doesn't match`);
+        continue;
+      }
 
       // Get user's contacts
       const { data: contacts, error: contactsError } = await supabaseClient
