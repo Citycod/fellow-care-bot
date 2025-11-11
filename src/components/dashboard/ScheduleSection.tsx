@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Calendar, Clock, Play, Pause } from "lucide-react";
+import { Calendar, Clock, Play, Pause, TestTube } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -122,6 +122,21 @@ const ScheduleSection = () => {
   const handleToggleSchedule = () => {
     setScheduleConfig({ ...scheduleConfig, is_active: !scheduleConfig.is_active });
   };
+
+  const testScheduleMutation = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke("send-scheduled-messages");
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (data) => {
+      toast.success(data.message || "Test completed! Check your contacts.");
+      queryClient.invalidateQueries({ queryKey: ["message-logs"] });
+    },
+    onError: (error: any) => {
+      toast.error(error.message || "Failed to test scheduled messages");
+    },
+  });
 
   return (
     <div className="space-y-6">
@@ -258,13 +273,23 @@ const ScheduleSection = () => {
             )}
           </div>
 
-          <Button 
-            className="w-full" 
-            onClick={() => saveMutation.mutate()}
-            disabled={saveMutation.isPending}
-          >
-            {saveMutation.isPending ? "Saving..." : "Save Schedule Settings"}
-          </Button>
+          <div className="flex gap-3">
+            <Button 
+              className="flex-1" 
+              onClick={() => saveMutation.mutate()}
+              disabled={saveMutation.isPending}
+            >
+              {saveMutation.isPending ? "Saving..." : "Save Schedule Settings"}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => testScheduleMutation.mutate()}
+              disabled={testScheduleMutation.isPending}
+            >
+              <TestTube className="w-4 h-4 mr-2" />
+              {testScheduleMutation.isPending ? "Testing..." : "Test Now"}
+            </Button>
+          </div>
         </div>
       </Card>
 

@@ -2,16 +2,27 @@ import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Upload, Search, Trash2, Plus } from "lucide-react";
+import { Upload, Search, Trash2, Send } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 
 const phoneSchema = z.string().regex(/^\+?[1-9]\d{1,14}$/, "Please enter a valid phone number (e.g., +1234567890)");
 
 const ContactsSection = () => {
   const [searchTerm, setSearchTerm] = useState("");
+  const [selectedContact, setSelectedContact] = useState<any>(null);
+  const [messageText, setMessageText] = useState("");
   const queryClient = useQueryClient();
 
   const { data: contacts = [], isLoading } = useQuery({
@@ -107,6 +118,37 @@ const ContactsSection = () => {
     deleteMutation.mutate(id);
   };
 
+  const sendMessageMutation = useMutation({
+    mutationFn: async ({ contactId, message }: { contactId: string; message: string }) => {
+      const { data, error } = await supabase.functions.invoke("send-whatsapp-message", {
+        body: { contactId, customMessage: message },
+      });
+
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (data) => {
+      if (data.whatsappUrl) {
+        window.open(data.whatsappUrl, "_blank");
+        toast.success("WhatsApp opened! Send your message.");
+      }
+      setSelectedContact(null);
+      setMessageText("");
+      queryClient.invalidateQueries({ queryKey: ["message-logs"] });
+    },
+    onError: () => {
+      toast.error("Failed to send message");
+    },
+  });
+
+  const handleSendMessage = (contact: any) => {
+    if (!messageText.trim()) {
+      toast.error("Please enter a message");
+      return;
+    }
+    sendMessageMutation.mutate({ contactId: contact.id, message: messageText });
+  };
+
   const filteredContacts = contacts.filter(
     (contact: any) =>
       contact.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -192,14 +234,50 @@ const ContactsSection = () => {
                       </span>
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDeleteContact(contact.id)}
-                        className="text-destructive hover:text-destructive"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
+                      <div className="flex items-center justify-end gap-2">
+                        <Dialog>
+                          <DialogTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setSelectedContact(contact)}
+                            >
+                              <Send className="w-4 h-4" />
+                            </Button>
+                          </DialogTrigger>
+                          <DialogContent>
+                            <DialogHeader>
+                              <DialogTitle>Send Message to {contact.name}</DialogTitle>
+                              <DialogDescription>
+                                Enter your message below. This will open WhatsApp with your message ready to send.
+                              </DialogDescription>
+                            </DialogHeader>
+                            <div className="space-y-4 py-4">
+                              <Textarea
+                                placeholder="Type your message here..."
+                                value={messageText}
+                                onChange={(e) => setMessageText(e.target.value)}
+                                rows={5}
+                              />
+                              <Button
+                                onClick={() => handleSendMessage(contact)}
+                                disabled={sendMessageMutation.isPending}
+                                className="w-full"
+                              >
+                                {sendMessageMutation.isPending ? "Opening WhatsApp..." : "Send via WhatsApp"}
+                              </Button>
+                            </div>
+                          </DialogContent>
+                        </Dialog>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDeleteContact(contact.id)}
+                          className="text-destructive hover:text-destructive"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 ))
