@@ -16,6 +16,8 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const phoneSchema = z.string().regex(/^\+?[1-9]\d{1,14}$/, "Please enter a valid phone number (e.g., +1234567890)");
 
@@ -23,6 +25,9 @@ const ContactsSection = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedContact, setSelectedContact] = useState<any>(null);
   const [messageText, setMessageText] = useState("");
+  const [selectedTemplate, setSelectedTemplate] = useState<string>("");
+  const [selectedContacts, setSelectedContacts] = useState<string[]>([]);
+  const [isBulkMode, setIsBulkMode] = useState(false);
   const queryClient = useQueryClient();
 
   const { data: contacts = [], isLoading } = useQuery({
@@ -30,6 +35,19 @@ const ContactsSection = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("contacts")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const { data: templates = [] } = useQuery({
+    queryKey: ["message-templates"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("message_templates")
         .select("*")
         .order("created_at", { ascending: false });
 
@@ -149,6 +167,72 @@ const ContactsSection = () => {
     sendMessageMutation.mutate({ contactId: contact.id, message: messageText });
   };
 
+  const handleTemplateSelect = (templateId: string) => {
+    setSelectedTemplate(templateId);
+    const template = templates.find((t: any) => t.id === templateId);
+    if (template) {
+      setMessageText(template.content);
+    }
+  };
+
+  const toggleContactSelection = (contactId: string) => {
+    setSelectedContacts(prev =>
+      prev.includes(contactId)
+        ? prev.filter(id => id !== contactId)
+        : [...prev, contactId]
+    );
+  };
+
+  const selectAllContacts = () => {
+    if (selectedContacts.length === filteredContacts.length) {
+      setSelectedContacts([]);
+    } else {
+      setSelectedContacts(filteredContacts.map((c: any) => c.id));
+    }
+  };
+
+  const sendBulkMessageMutation = useMutation({
+    mutationFn: async ({ contactIds, message }: { contactIds: string[]; message: string }) => {
+      const results = [];
+      for (const contactId of contactIds) {
+        const { data, error } = await supabase.functions.invoke("send-whatsapp-message", {
+          body: { contactId, customMessage: message },
+        });
+        if (!error && data) {
+          results.push(data);
+        }
+      }
+      return results;
+    },
+    onSuccess: (data) => {
+      data.forEach((result: any) => {
+        if (result.whatsappUrl) {
+          window.open(result.whatsappUrl, "_blank");
+        }
+      });
+      toast.success(`Opening WhatsApp for ${data.length} contacts!`);
+      setSelectedContacts([]);
+      setIsBulkMode(false);
+      setMessageText("");
+      queryClient.invalidateQueries({ queryKey: ["message-logs"] });
+    },
+    onError: () => {
+      toast.error("Failed to send bulk messages");
+    },
+  });
+
+  const handleBulkSend = () => {
+    if (selectedContacts.length === 0) {
+      toast.error("Please select at least one contact");
+      return;
+    }
+    if (!messageText.trim()) {
+      toast.error("Please enter a message");
+      return;
+    }
+    sendBulkMessageMutation.mutate({ contactIds: selectedContacts, message: messageText });
+  };
+
   const filteredContacts = contacts.filter(
     (contact: any) =>
       contact.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -170,6 +254,16 @@ const ContactsSection = () => {
             />
           </div>
           <div className="flex gap-2">
+            <Button 
+              variant={isBulkMode ? "default" : "outline"}
+              onClick={() => {
+                setIsBulkMode(!isBulkMode);
+                setSelectedContacts([]);
+              }}
+            >
+              <Send className="w-4 h-4 mr-2" />
+              {isBulkMode ? "Cancel Bulk" : "Bulk Message"}
+            </Button>
             <Button variant="outline" onClick={() => document.getElementById("csv-upload")?.click()}>
               <Upload className="w-4 h-4 mr-2" />
               Upload CSV
@@ -188,12 +282,62 @@ const ContactsSection = () => {
         </p>
       </Card>
 
+      {/* Bulk Message Card */}
+      {isBulkMode && (
+        <Card className="p-6 bg-primary/5">
+          <h3 className="font-semibold mb-4">Bulk Message ({selectedContacts.length} selected)</h3>
+          <div className="space-y-4">
+            {templates.length > 0 && (
+              <div>
+                <Label>Select Template (Optional)</Label>
+                <Select value={selectedTemplate} onValueChange={handleTemplateSelect}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Choose a template..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {templates.map((template: any) => (
+                      <SelectItem key={template.id} value={template.id}>
+                        {template.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            <Textarea
+              placeholder="Type your message here..."
+              value={messageText}
+              onChange={(e) => setMessageText(e.target.value)}
+              rows={4}
+            />
+            <div className="flex gap-2">
+              <Button onClick={handleBulkSend} disabled={sendBulkMessageMutation.isPending} className="flex-1">
+                {sendBulkMessageMutation.isPending ? "Sending..." : `Send to ${selectedContacts.length} Contacts`}
+              </Button>
+              <Button variant="outline" onClick={selectAllContacts}>
+                {selectedContacts.length === filteredContacts.length ? "Deselect All" : "Select All"}
+              </Button>
+            </div>
+          </div>
+        </Card>
+      )}
+
       {/* Contacts Table */}
       <Card>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-muted/50">
               <tr>
+                {isBulkMode && (
+                  <th className="px-6 py-4 text-left text-sm font-medium text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      checked={selectedContacts.length === filteredContacts.length && filteredContacts.length > 0}
+                      onChange={selectAllContacts}
+                      className="w-4 h-4"
+                    />
+                  </th>
+                )}
                 <th className="px-6 py-4 text-left text-sm font-medium text-muted-foreground">Name</th>
                 <th className="px-6 py-4 text-left text-sm font-medium text-muted-foreground">Phone</th>
                 <th className="px-6 py-4 text-left text-sm font-medium text-muted-foreground">Added Date</th>
@@ -210,13 +354,23 @@ const ContactsSection = () => {
                 </tr>
               ) : filteredContacts.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-4 text-center text-sm text-muted-foreground">
+                  <td colSpan={isBulkMode ? 6 : 5} className="px-6 py-4 text-center text-sm text-muted-foreground">
                     No contacts found. Upload a CSV to get started!
                   </td>
                 </tr>
               ) : (
                 filteredContacts.map((contact: any) => (
                   <tr key={contact.id} className="hover:bg-muted/30 transition-colors">
+                    {isBulkMode && (
+                      <td className="px-6 py-4">
+                        <input
+                          type="checkbox"
+                          checked={selectedContacts.includes(contact.id)}
+                          onChange={() => toggleContactSelection(contact.id)}
+                          className="w-4 h-4"
+                        />
+                      </td>
+                    )}
                     <td className="px-6 py-4 text-sm font-medium text-foreground">{contact.name}</td>
                     <td className="px-6 py-4 text-sm text-muted-foreground">{contact.phone}</td>
                     <td className="px-6 py-4 text-sm text-muted-foreground">
@@ -253,6 +407,23 @@ const ContactsSection = () => {
                               </DialogDescription>
                             </DialogHeader>
                             <div className="space-y-4 py-4">
+                              {templates.length > 0 && (
+                                <div>
+                                  <Label>Select Template (Optional)</Label>
+                                  <Select value={selectedTemplate} onValueChange={handleTemplateSelect}>
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="Choose a template..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {templates.map((template: any) => (
+                                        <SelectItem key={template.id} value={template.id}>
+                                          {template.name}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              )}
                               <Textarea
                                 placeholder="Type your message here..."
                                 value={messageText}
