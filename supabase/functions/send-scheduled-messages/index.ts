@@ -37,16 +37,16 @@ serve(async (req) => {
     let totalMessagesSent = 0;
 
     for (const schedule of schedules || []) {
-      // Convert UTC time to Nigerian timezone (Africa/Lagos, UTC+1)
+      // Use GMT timezone
       const now = new Date();
-      const nigerianTime = new Date(now.toLocaleString('en-US', { timeZone: 'Africa/Lagos' }));
+      const gmtTime = new Date(now.toLocaleString('en-US', { timeZone: 'GMT' }));
       
-      const currentDay = nigerianTime.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'Africa/Lagos' });
-      const currentHours = nigerianTime.getHours().toString().padStart(2, '0');
-      const currentMinutes = nigerianTime.getMinutes().toString().padStart(2, '0');
+      const currentDay = gmtTime.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'GMT' });
+      const currentHours = gmtTime.getHours().toString().padStart(2, '0');
+      const currentMinutes = gmtTime.getMinutes().toString().padStart(2, '0');
       const currentTime = `${currentHours}:${currentMinutes}`;
 
-      console.log(`Nigerian time - Day: ${currentDay}, Time: ${currentTime}`);
+      console.log(`GMT time - Day: ${currentDay}, Time: ${currentTime}`);
 
       // Check if today is a scheduled day
       if (!schedule.send_days.includes(currentDay)) {
